@@ -88,7 +88,7 @@ companies = {
         'Bank': {
             'encoding': 'sjis',
             'dtFmt': '%Y%m%d',
-            'slice': '8:',
+            'slice': '7:',
             'fieldMap': {
                 'Date': 0,
                 'Credit': 2,
