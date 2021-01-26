@@ -80,7 +80,41 @@ import os
 import sys
 import traceback
 from datetime import datetime
-from typing import Any, List, Dict, Generator, Iterator, Callable
+from typing import Any, List, Dict, Generator, Iterator, Callable, Tuple
+
+# Predefined CSV formats
+companies = {
+    'JP-Post': {
+        'Bank': {
+            'encoding': 'sjis',
+            'dtFmt': '%Y%m%d',
+            'slice': '8:',
+            'fieldMap': {
+                'Date': 0,
+                'Credit': 2,
+                'Debit': 3,
+                'Payee': 4,
+                'Memo': 5,
+            },
+        },
+    },
+    'Shinsei': {
+        'Bank': {
+            'encoding': 'sjis',
+            'dtFmt': '%Y/%m/%d',
+            'slice': '1:',
+            'fieldMap': {'Date': 0, 'Memo': 1, 'Debit': 2, 'Credit': 3},
+        },
+    },
+    'EPOS': {
+        'CCard': {
+            'encoding': 'sjis',
+            'dtFmt': '%Y年%m月%d日',
+            'slice': '2:-4',
+            'fieldMap': {'Date': 1, 'Payee': 2, 'Debit': 4},
+        },
+    },
+}
 
 # Valid QIF codes
 FIELD_CODE = {
@@ -142,33 +176,37 @@ class ArgumentParser(argparse.ArgumentParser):
 def parse_dict(  # pylint: disable=R0913
     arg_value: str,
     arg_name: str,
-    valid_values: Iterator,
+    valid_values: Tuple,
     value_type: Any = str,
     item_sep: str = ',',
     val_sep: str = ':',
-    touple_item_getter: Callable = lambda x: x,
+    tuple_item_getter: Callable = lambda x: x,
 ) -> Dict[str, Any]:
     "Parse argument string into dictionary and raise ArgumentError if arg_name has bad_items"
-    dic = {
-        key: value_type(val)
-        for key, val in (
-            element.split(val_sep)
-            for element in arg_value.split(item_sep)
-        )
-    }
-    bad_items = []
-    for item in dic.items():
-        if touple_item_getter(item) not in valid_values:
-            bad_items.append(item)
-    if bad_items:
-        item_sep += ' '
-        if isinstance(next(iter(valid_values)), tuple):
-            valid_values = (val_sep.join(x) for x in valid_values)
-        valid_values_str = item_sep.join(valid_values)
-        bad_items_str = item_sep.join(f'{key}{val_sep}{val}' for key, val in bad_items)
-        raise ArgumentError(MSG_BAD_VAL % (bad_items_str, arg_name, valid_values_str))
+    valid_values_str = ', '.join(':'.join(x) for x in valid_values)
+    bad_items_str = arg_value
+    try:
+        dic = {
+            key: value_type(val)
+            for key, val in (
+                element.split(val_sep)
+                for element in arg_value.split(item_sep)
+            )
+        }
+        bad_items = []
+        for item in dic.items():
+            if tuple_item_getter(item) not in valid_values:
+                bad_items.append(item)
+        if bad_items:
+            item_sep += ' '
+            if isinstance(next(iter(valid_values)), tuple):
+                valid_values = (val_sep.join(x) for x in valid_values)
+            bad_items_str = item_sep.join(f'{key}{val_sep}{val}' for key, val in bad_items)
+            raise ValueError
 
-    return dic
+        return dic
+    except ValueError:
+        raise ArgumentError(MSG_BAD_VAL % (bad_items_str, arg_name, valid_values_str))
 
 
 def parse_file_options(
@@ -215,46 +253,12 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
             'Invst',
         )
 
-        # Predefined CSV formats
-        companies = {
-            'JP-Post': {
-                'Bank': {
-                    'encoding': 'sjis',
-                    'dtFmt': '%Y%m%d',
-                    'slice': '8:',
-                    'fieldMap': {
-                        'Date': 0,
-                        'Credit': 2,
-                        'Debit': 3,
-                        'Payee': 4,
-                        'Memo': 5,
-                    },
-                },
-            },
-            'Shinsei': {
-                'Bank': {
-                    'encoding': 'sjis',
-                    'dtFmt': '%Y/%m/%d',
-                    'slice': '1:',
-                    'fieldMap': {'Date': 0, 'Memo': 1, 'Debit': 2, 'Credit': 3},
-                },
-            },
-            'EPOS': {
-                'CCard': {
-                    'encoding': 'sjis',
-                    'dtFmt': '%Y年%m月%d日',
-                    'slice': '2:-4',
-                    'fieldMap': {'Date': 1, 'Payee': 2, 'Debit': 4},
-                },
-            },
-        }
-
         class NameType:
             "Data class to hold name:type pair from a dictonary with one element"
 
             def __init__(self, singleDict: Dict[str, str]):
                 if len(singleDict) > 1:
-                    raise ArgumentError(f"Only one name:type is accepted with --company.")
+                    raise ArgumentError("Only one name:type is accepted with --company.")
                 ((self.name, self.type),) = singleDict.items()
 
             def __str__(self):
@@ -301,15 +305,15 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
             ),
         )
 
-        meg = parser.add_mutually_exclusive_group(required=True)
+        mutually_exclusive = parser.add_mutually_exclusive_group(required=True)
 
-        meg.add_argument(
+        mutually_exclusive.add_argument(
             '--fieldMap',
             type=lambda v: parse_dict(
                 arg_value=v,
                 arg_name='--fieldMap',
                 valid_values=FIELD_CODE,
-                touple_item_getter=lambda x: x[0],
+                tuple_item_getter=lambda x: x[0],
             ),
             help=(
                 f'comma-separated fieldName:position pairs. Valid fieldMap {tuple(FIELD_CODE)}'
@@ -317,7 +321,7 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
             ),
         )
 
-        meg.add_argument(
+        mutually_exclusive.add_argument(
             '--company',
             type=lambda v: NameType(
                 parse_dict(
@@ -326,7 +330,7 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
                     valid_values=tuple((k, x) for k, v in companies.items() for x in v),
                 )
             ),
-            help='The predefined Financial Institution name:type pair',
+            help='The predefined Financial Institution name:type pair, e.g. Chase:Bank',
         )
 
         parser.parse_args(namespace=self)
@@ -397,9 +401,10 @@ def csv2qif(
         ):
             continue
         # Convert CSV date format to QIF format if differ
-        fields['Date'] = datetime.strftime(
-            datetime.strptime(fields['Date'], csv_date_fmt), qif_date_fmt
-        )
+        if csv_date_fmt != qif_date_fmt:
+            fields['Date'] = datetime.strftime(
+                datetime.strptime(fields['Date'], csv_date_fmt), qif_date_fmt
+            )
         fields.update(constant_fields)
         LOG.debug(fields)
         for key, val in fields.items():
@@ -482,8 +487,10 @@ def main(arg: ParseArgs) -> None:
 def main_alt(arg: ParseArgs) -> None:
     "Converts CSV to QIF file"
     # Open CSV file for reading and QIF file for writing
-    with open(arg.csv['file'], mode='r', encoding=arg.csv['encoding']) as (csv_file
-    ),   open(arg.qif['file'], mode='w', encoding=arg.qif['encoding']) as (qif_file
+    with open(arg.csv['file'], mode='r', encoding=arg.csv['encoding']) as (
+        csv_file
+    ), open(arg.qif['file'], mode='w', encoding=arg.qif['encoding']) as (
+        qif_file
     ):
         iterator = csv2qif(  # Convert CSV to QIF (Step 3)
             qif_type=arg.qif['type'],
