@@ -154,6 +154,12 @@ class ArgumentParser(argparse.ArgumentParser):
         print()
         exit(1)
 
+def key_val_to_tuple(dic):
+    return ((k, x) for k, v in dic.items() for x in v)
+
+def key_val_to_str(pairs):
+    return ', '.join(k + ':' + str(v) for k, v in pairs)
+
 
 def parse_dict(  # pylint: disable=R0913
     arg_value: str,
@@ -260,8 +266,8 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
                 val_sep='=',
             ),
             help=(
-                'CSV input file name followed by comma-separated key=value pairs of options'
-                f'{tuple(file_options)}, e.g. data.csv,encoding=sjis,slice=1:,dtFmt=%%Y%%m%%d'
+                'CSV input file name followed by comma-separated key=value pairs'
+                ' e.g. data.csv,encoding=sjis,slice=1:,dtFmt=%%Y%%m%%d'
             ),
             required=True,
         )
@@ -304,10 +310,10 @@ class ParseArgs:  # pylint: disable=too-few-public-methods
                 parse_dict(
                     arg_value=v,
                     arg_name='--company',
-                    valid_values=tuple((k, x) for k, v in companies.items() for x in v),
+                    valid_values=key_val_to_tuple(companies),
                 )
             ),
-            help='The predefined Financial Institution name:type pair, e.g. Chase:Bank',
+            help=f'Optional Financial Institution file format: {key_val_to_str(key_val_to_tuple(companies))}',
         )
 
         parser.parse_args(namespace=self)
