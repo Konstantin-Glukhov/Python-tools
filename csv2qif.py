@@ -77,8 +77,6 @@ import csv
 import itertools
 import logging
 import os
-import sys
-import traceback
 from datetime import datetime
 from typing import Any, List, Dict, Generator, Iterator, Callable, Tuple
 
@@ -137,7 +135,7 @@ logging.basicConfig(
 )
 LOG = logging.getLogger()
 
-MSG_BAD_VAL = "'%s' is invalid value for option %s\nValid values: %s"
+MSG_BAD_VAL = "'%s' is an invalid value for option %s\nValid values: %s"
 
 class ArgumentError(argparse.ArgumentError):
     "Can be raised when calling ArgumentParser methods"
@@ -147,30 +145,14 @@ class ArgumentError(argparse.ArgumentError):
 
 
 class ArgumentParser(argparse.ArgumentParser):
-    """
-    Override argparse.ArgumentParser.error()
-    to call print_help() and print chained exceptions
-    """
-
+    "Override argparse.ArgumentParser.error() to call print_help()"
     def error(self, message):
         "Can be called by a ArgumentParser instance"
 
         print('\nError: ' + message + '\n')
         self.print_help()
         print()
-        # Print chained exceptions
-        typ, val, trc_bak = sys.exc_info()
-        tbe = traceback.TracebackException(typ, val, trc_bak)
-        if tbe.__cause__ is not None:
-            trace = tbe.__cause__
-        elif tbe.__context__ is not None:
-            trace = tbe.__context__
-        else:
-            trace = None
-        if trace is not None:
-            for line in trace.format():
-                print(line, end='')
-        sys.exit(1)
+        exit(1)
 
 
 def parse_dict(  # pylint: disable=R0913
@@ -183,8 +165,6 @@ def parse_dict(  # pylint: disable=R0913
     tuple_item_getter: Callable = lambda x: x,
 ) -> Dict[str, Any]:
     "Parse argument string into dictionary and raise ArgumentError if arg_name has bad_items"
-    valid_values_str = ', '.join(':'.join(x) for x in valid_values)
-    bad_items_str = arg_value
     try:
         dic = {
             key: value_type(val)
@@ -198,15 +178,12 @@ def parse_dict(  # pylint: disable=R0913
             if tuple_item_getter(item) not in valid_values:
                 bad_items.append(item)
         if bad_items:
-            item_sep += ' '
-            if isinstance(next(iter(valid_values)), tuple):
-                valid_values = (val_sep.join(x) for x in valid_values)
-            bad_items_str = item_sep.join(f'{key}{val_sep}{val}' for key, val in bad_items)
             raise ValueError
 
         return dic
     except ValueError:
-        raise ArgumentError(MSG_BAD_VAL % (bad_items_str, arg_name, valid_values_str))
+        valid_values_str = ', '.join(':'.join(x) for x in valid_values)
+        raise ArgumentError(MSG_BAD_VAL % (arg_value, arg_name, valid_values_str))
 
 
 def parse_file_options(
@@ -510,5 +487,8 @@ def main_alt(arg: ParseArgs) -> None:
 
 
 if __name__ == '__main__':
-    ARG = ParseArgs()
-    main(ARG)
+    try:
+        ARG = ParseArgs()
+        main_alt(ARG)
+    except ArgumentError:
+        pass
